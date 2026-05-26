@@ -17,6 +17,7 @@ const ITEMS: NavItem[] = [
   { screen: "files", icon: "folder", label: "FILES" },
   { screen: "tools", icon: "zap", label: "TOOLS" },
   { screen: "ducky", icon: "code", label: "DUCKY" },
+  { screen: "bridge", icon: "link", label: "BRIDGE" },
 ];
 
 export default function NavBar() {
@@ -39,6 +40,7 @@ export default function NavBar() {
     >
       {ITEMS.map((item) => {
         const active = activeScreen === item.screen;
+        const isBridge = item.screen === "bridge";
         return (
           <TouchableOpacity
             key={item.screen}
@@ -46,17 +48,17 @@ export default function NavBar() {
             onPress={() => setActiveScreen(item.screen)}
           >
             {active && (
-              <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
+              <View style={[styles.activeDot, { backgroundColor: isBridge ? "#44ff44" : colors.primary }]} />
             )}
             <Feather
               name={item.icon}
-              size={18}
-              color={active ? colors.navActive : colors.navInactive}
+              size={15}
+              color={active ? (isBridge ? "#44ff44" : colors.navActive) : colors.navInactive}
             />
             <Text
               style={[
                 styles.label,
-                { color: active ? colors.navActive : colors.navInactive },
+                { color: active ? (isBridge ? "#44ff44" : colors.navActive) : colors.navInactive },
               ]}
             >
               {item.label}
@@ -80,7 +82,7 @@ const styles = StyleSheet.create({
   item: {
     flex: 1,
     alignItems: "center",
-    paddingTop: 7,
+    paddingTop: 6,
     paddingBottom: 3,
     gap: 2,
     position: "relative",
@@ -93,8 +95,8 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: "monospace",
-    fontSize: 7,
-    letterSpacing: 0.5,
+    fontSize: 6,
+    letterSpacing: 0.3,
     fontWeight: "bold",
   },
 });

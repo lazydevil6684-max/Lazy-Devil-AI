@@ -7,7 +7,8 @@ import React, {
   useState,
 } from "react";
 
-export type Screen = "terminal" | "ai" | "files" | "tools" | "ducky";
+export type Screen = "terminal" | "ai" | "files" | "tools" | "ducky" | "bridge";
+export type ExecMode = "backend" | "termux";
 
 export interface TerminalLine {
   id: string;
@@ -33,50 +34,21 @@ export interface AiModel {
 }
 
 export const AI_MODELS: AiModel[] = [
-  {
-    id: "replit-ai",
-    name: "LazyDevil AI",
-    provider: "Replit (Free)",
-    endpoint: "/api/ai/chat",
-    free: true,
-    usesBackend: true,
-  },
-  {
-    id: "llama-3.3-70b-versatile",
-    name: "Llama 3.3 70B",
-    provider: "Groq",
-    endpoint: "https://api.groq.com/openai/v1",
-    free: true,
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral 8x7B",
-    provider: "Groq",
-    endpoint: "https://api.groq.com/openai/v1",
-    free: true,
-  },
-  {
-    id: "meta-llama/llama-4-maverick:free",
-    name: "Llama 4 Maverick",
-    provider: "OpenRouter",
-    endpoint: "https://openrouter.ai/api/v1",
-    free: true,
-  },
-  {
-    id: "mistralai/mistral-7b-instruct:free",
-    name: "Mistral 7B",
-    provider: "OpenRouter",
-    endpoint: "https://openrouter.ai/api/v1",
-    free: true,
-  },
-  {
-    id: "deepseek/deepseek-r1:free",
-    name: "DeepSeek R1",
-    provider: "OpenRouter",
-    endpoint: "https://openrouter.ai/api/v1",
-    free: true,
-  },
+  { id: "replit-ai", name: "LazyDevil AI", provider: "Replit (Free)", endpoint: "/api/ai/chat", free: true, usesBackend: true },
+  { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", provider: "Groq", endpoint: "https://api.groq.com/openai/v1", free: true },
+  { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B", provider: "Groq", endpoint: "https://api.groq.com/openai/v1", free: true },
+  { id: "meta-llama/llama-4-maverick:free", name: "Llama 4 Maverick", provider: "OpenRouter", endpoint: "https://openrouter.ai/api/v1", free: true },
+  { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B", provider: "OpenRouter", endpoint: "https://openrouter.ai/api/v1", free: true },
+  { id: "deepseek/deepseek-r1:free", name: "DeepSeek R1", provider: "OpenRouter", endpoint: "https://openrouter.ai/api/v1", free: true },
 ];
+
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  elapsed: number;
+  command: string;
+}
 
 interface AppContextType {
   activeScreen: Screen;
@@ -100,23 +72,31 @@ interface AppContextType {
   clearHistory: () => void;
   executeCommandFromAI: ((cmd: string) => void) | null;
   setExecuteCommandFromAI: (fn: ((cmd: string) => void) | null) => void;
+  execMode: ExecMode;
+  setExecMode: (m: ExecMode) => void;
+  termuxUrl: string;
+  setTermuxUrl: (url: string) => void;
+  backendUrl: string;
+  execCommand: (cmd: string) => Promise<ExecResult>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
-const STORAGE_KEY_MODEL = "lazy_devil_model_id";
-const STORAGE_KEY_APIKEY = "lazy_devil_api_key";
-const STORAGE_KEY_HISTORY = "lazy_devil_cmd_history";
+const SK_MODEL = "lazy_devil_model_id";
+const SK_APIKEY = "lazy_devil_api_key";
+const SK_HISTORY = "lazy_devil_cmd_history";
+const SK_EXECMODE = "lazy_devil_exec_mode";
+const SK_TERMUXURL = "lazy_devil_termux_url";
 
 const BOOT_LINES: TerminalLine[] = [
-  { id: "b1", type: "info", content: "╔════════════════════════════════════════╗", timestamp: 0 },
-  { id: "b2", type: "info", content: "║      LAZY DEVIL TERMINAL  v2.0         ║", timestamp: 0 },
-  { id: "b3", type: "info", content: "║   Pen Test Suite · AI · NetHunter      ║", timestamp: 0 },
-  { id: "b4", type: "info", content: "╚════════════════════════════════════════╝", timestamp: 0 },
+  { id: "b1", type: "info", content: "╔════════════════════════════════════════════╗", timestamp: 0 },
+  { id: "b2", type: "info", content: "║      LAZY DEVIL TERMINAL  v2.1              ║", timestamp: 0 },
+  { id: "b3", type: "info", content: "║   Real Execution · AI Agent · NetHunter    ║", timestamp: 0 },
+  { id: "b4", type: "info", content: "╚════════════════════════════════════════════╝", timestamp: 0 },
   { id: "b5", type: "success", content: "[+] Root access granted", timestamp: 0 },
-  { id: "b6", type: "success", content: "[+] Kali modules loaded (28 tools)", timestamp: 0 },
-  { id: "b7", type: "success", content: "[+] NetHunter framework initialized", timestamp: 0 },
-  { id: "b8", type: "output", content: 'Type "help" for available commands | Voice: tap mic', timestamp: 0 },
+  { id: "b6", type: "success", content: "[+] Backend execution: ONLINE (real Linux)", timestamp: 0 },
+  { id: "b7", type: "success", content: "[+] AI Agent mode ready", timestamp: 0 },
+  { id: "b8", type: "output", content: 'Type "help" | Tap 🤖 for AI Agent | DUCKY tab for payloads', timestamp: 0 },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -129,77 +109,115 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [executeCommandFromAI, setExecuteCommandFromAI] = useState<((cmd: string) => void) | null>(null);
+  const [execMode, setExecModeState] = useState<ExecMode>("backend");
+  const [termuxUrl, setTermuxUrlState] = useState<string>("http://192.168.1.100:8765");
+
+  const backendUrl = (() => {
+    const domain = process.env.EXPO_PUBLIC_DOMAIN;
+    return domain ? `https://${domain}` : "";
+  })();
 
   useEffect(() => {
     (async () => {
-      const [savedModelId, savedApiKey, savedHistory] = await Promise.all([
-        AsyncStorage.getItem(STORAGE_KEY_MODEL),
-        AsyncStorage.getItem(STORAGE_KEY_APIKEY),
-        AsyncStorage.getItem(STORAGE_KEY_HISTORY),
+      const [savedModel, savedKey, savedHistory, savedMode, savedTermux] = await Promise.all([
+        AsyncStorage.getItem(SK_MODEL),
+        AsyncStorage.getItem(SK_APIKEY),
+        AsyncStorage.getItem(SK_HISTORY),
+        AsyncStorage.getItem(SK_EXECMODE),
+        AsyncStorage.getItem(SK_TERMUXURL),
       ]);
-      if (savedModelId) {
-        const found = AI_MODELS.find((m) => m.id === savedModelId);
-        if (found) setSelectedModelState(found);
-      }
-      if (savedApiKey) setApiKeyState(savedApiKey);
-      if (savedHistory) {
-        try { setCommandHistory(JSON.parse(savedHistory)); } catch {}
-      }
+      if (savedModel) { const f = AI_MODELS.find(m => m.id === savedModel); if (f) setSelectedModelState(f); }
+      if (savedKey) setApiKeyState(savedKey);
+      if (savedHistory) { try { setCommandHistory(JSON.parse(savedHistory)); } catch {} }
+      if (savedMode) setExecModeState(savedMode as ExecMode);
+      if (savedTermux) setTermuxUrlState(savedTermux);
     })();
   }, []);
 
+  const execCommand = useCallback(async (cmd: string): Promise<ExecResult> => {
+    try {
+      let url: string;
+      if (execMode === "termux") {
+        url = `${termuxUrl}/exec`;
+      } else {
+        url = `${backendUrl}/api/execute`;
+      }
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: cmd }),
+      });
+      const data = await resp.json();
+      return data as ExecResult;
+    } catch (e: any) {
+      return { stdout: "", stderr: `[!] Execution failed: ${e?.message ?? "Connection error"}`, exitCode: 1, elapsed: 0, command: cmd };
+    }
+  }, [execMode, termuxUrl, backendUrl]);
+
   const addTerminalLine = useCallback((line: Omit<TerminalLine, "id" | "timestamp">) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 9);
-    setTerminalLines((prev) => [...prev, { ...line, id, timestamp: Date.now() }]);
+    setTerminalLines(prev => [...prev, { ...line, id, timestamp: Date.now() }]);
   }, []);
 
   const clearTerminal = useCallback(() => setTerminalLines([]), []);
 
   const addAiMessage = useCallback((msg: Omit<AiMessage, "id" | "timestamp">) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 9);
-    setAiMessages((prev) => [...prev, { ...msg, id, timestamp: Date.now() }]);
+    setAiMessages(prev => [...prev, { ...msg, id, timestamp: Date.now() }]);
   }, []);
 
   const clearAiMessages = useCallback(() => setAiMessages([]), []);
 
   const setSelectedModel = useCallback((model: AiModel) => {
     setSelectedModelState(model);
-    AsyncStorage.setItem(STORAGE_KEY_MODEL, model.id);
+    AsyncStorage.setItem(SK_MODEL, model.id);
   }, []);
 
   const setApiKey = useCallback((key: string) => {
     setApiKeyState(key);
-    AsyncStorage.setItem(STORAGE_KEY_APIKEY, key);
+    AsyncStorage.setItem(SK_APIKEY, key);
   }, []);
 
   const addToHistory = useCallback((cmd: string) => {
-    setCommandHistory((prev) => {
-      const filtered = prev.filter((c) => c !== cmd);
+    setCommandHistory(prev => {
+      const filtered = prev.filter(c => c !== cmd);
       const updated = [cmd, ...filtered].slice(0, 200);
-      AsyncStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(updated));
+      AsyncStorage.setItem(SK_HISTORY, JSON.stringify(updated));
       return updated;
     });
   }, []);
 
   const clearHistory = useCallback(() => {
     setCommandHistory([]);
-    AsyncStorage.removeItem(STORAGE_KEY_HISTORY);
+    AsyncStorage.removeItem(SK_HISTORY);
+  }, []);
+
+  const setExecMode = useCallback((m: ExecMode) => {
+    setExecModeState(m);
+    AsyncStorage.setItem(SK_EXECMODE, m);
+  }, []);
+
+  const setTermuxUrl = useCallback((url: string) => {
+    setTermuxUrlState(url);
+    AsyncStorage.setItem(SK_TERMUXURL, url);
   }, []);
 
   return (
-    <AppContext.Provider
-      value={{
-        activeScreen, setActiveScreen,
-        terminalLines, addTerminalLine, clearTerminal,
-        aiMessages, addAiMessage, clearAiMessages,
-        selectedModel, setSelectedModel,
-        apiKey, setApiKey,
-        currentPath, setCurrentPath,
-        isAiLoading, setIsAiLoading,
-        commandHistory, addToHistory, clearHistory,
-        executeCommandFromAI, setExecuteCommandFromAI,
-      }}
-    >
+    <AppContext.Provider value={{
+      activeScreen, setActiveScreen,
+      terminalLines, addTerminalLine, clearTerminal,
+      aiMessages, addAiMessage, clearAiMessages,
+      selectedModel, setSelectedModel,
+      apiKey, setApiKey,
+      currentPath, setCurrentPath,
+      isAiLoading, setIsAiLoading,
+      commandHistory, addToHistory, clearHistory,
+      executeCommandFromAI, setExecuteCommandFromAI,
+      execMode, setExecMode,
+      termuxUrl, setTermuxUrl,
+      backendUrl,
+      execCommand,
+    }}>
       {children}
     </AppContext.Provider>
   );
