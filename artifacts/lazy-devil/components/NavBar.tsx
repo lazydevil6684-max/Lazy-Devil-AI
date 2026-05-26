@@ -12,10 +12,11 @@ interface NavItem {
 }
 
 const ITEMS: NavItem[] = [
-  { screen: "terminal", icon: "terminal", label: "TERMINAL" },
-  { screen: "ai", icon: "cpu", label: "AI CHAT" },
+  { screen: "terminal", icon: "terminal", label: "SHELL" },
+  { screen: "ai", icon: "cpu", label: "AI" },
   { screen: "files", icon: "folder", label: "FILES" },
   { screen: "tools", icon: "zap", label: "TOOLS" },
+  { screen: "ducky", icon: "code", label: "DUCKY" },
 ];
 
 export default function NavBar() {
@@ -31,7 +32,7 @@ export default function NavBar() {
         styles.container,
         {
           borderTopColor: colors.border,
-          paddingBottom: paddingBottom,
+          paddingBottom,
           backgroundColor: "rgba(0,0,0,0.97)",
         },
       ]}
@@ -49,7 +50,7 @@ export default function NavBar() {
             )}
             <Feather
               name={item.icon}
-              size={20}
+              size={18}
               color={active ? colors.navActive : colors.navInactive}
             />
             <Text
@@ -79,9 +80,9 @@ const styles = StyleSheet.create({
   item: {
     flex: 1,
     alignItems: "center",
-    paddingTop: 8,
-    paddingBottom: 4,
-    gap: 3,
+    paddingTop: 7,
+    paddingBottom: 3,
+    gap: 2,
     position: "relative",
   },
   activeDot: {
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: "monospace",
-    fontSize: 8,
+    fontSize: 7,
     letterSpacing: 0.5,
     fontWeight: "bold",
   },

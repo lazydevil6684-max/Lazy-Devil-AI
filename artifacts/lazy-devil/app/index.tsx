@@ -2,6 +2,7 @@ import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AIScreen from "@/components/AIScreen";
+import DuckyScreen from "@/components/DuckyScreen";
 import FilesScreen from "@/components/FilesScreen";
 import MatrixRain from "@/components/MatrixRain";
 import NavBar from "@/components/NavBar";
@@ -23,6 +24,7 @@ export default function MainScreen() {
         {activeScreen === "ai" && <AIScreen />}
         {activeScreen === "files" && <FilesScreen />}
         {activeScreen === "tools" && <ToolsScreen />}
+        {activeScreen === "ducky" && <DuckyScreen />}
       </View>
       <NavBar />
     </View>
