@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "Lazy Devil",
+    "name": "Lazy Devil Terminal",
     "slug": "lazy-devil",
-    "version": "1.0.0",
+    "version": "2.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "lazy-devil",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -15,14 +15,67 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.lazydevil.terminal"
+      "bundleIdentifier": "com.lazydevil.terminal",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera for Termux API and security tools.",
+        "NSMicrophoneUsageDescription": "Microphone for voice command input.",
+        "NSLocationWhenInUseUsageDescription": "Location for network mapping and Termux API.",
+        "NSContactsUsageDescription": "Contacts access via Termux API.",
+        "NSBluetoothAlwaysUsageDescription": "Bluetooth for wireless security testing."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.lazydevil.terminal"
+      "package": "com.lazydevil.terminal",
+      "versionCode": 4,
+      "minSdkVersion": 26,
+      "targetSdkVersion": 35,
+      "compileSdkVersion": 35,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        "android.permission.CHANGE_NETWORK_STATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.MANAGE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.READ_CONTACTS",
+        "android.permission.READ_SMS",
+        "android.permission.SEND_SMS",
+        "android.permission.RECEIVE_SMS",
+        "android.permission.READ_CALL_LOG",
+        "android.permission.CALL_PHONE",
+        "android.permission.VIBRATE",
+        "android.permission.FLASHLIGHT",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.NFC",
+        "android.permission.TRANSMIT_IR",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
+      "allowBackup": false,
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -35,7 +88,9 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withAndroidPermissions",
+      "./plugins/withRootExec"
     ],
     "experiments": {
       "typedRoutes": true,

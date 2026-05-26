@@ -1,0 +1,2 @@
+- [APK build setup](apk-build.md) — EAS cloud build configured; native root module via config plugin pattern (no local workspace package needed)
+- [React useState function setter quirk](react-setstate-fn.md) — passing a function to useState setter calls it as updater; wrap in thunk `setState(() => fn)` to store function as state
