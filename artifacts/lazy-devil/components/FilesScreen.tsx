@@ -49,9 +49,7 @@ export default function FilesScreen() {
       const detailed: FileEntry[] = await Promise.all(
         names.map(async (name) => {
           try {
-            const fi = await FileSystem.getInfoAsync(`${path}/${name}`, {
-              size: true,
-            });
+            const fi = await FileSystem.getInfoAsync(`${path}/${name}`);
             return {
               name,
               isDirectory: fi.isDirectory ?? false,

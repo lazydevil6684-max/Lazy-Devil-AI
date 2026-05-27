@@ -7,6 +7,7 @@ import DuckyScreen from "@/components/DuckyScreen";
 import FilesScreen from "@/components/FilesScreen";
 import MatrixRain from "@/components/MatrixRain";
 import NavBar from "@/components/NavBar";
+import NetMapScreen from "@/components/NetMapScreen";
 import TerminalScreen from "@/components/TerminalScreen";
 import ToolsScreen from "@/components/ToolsScreen";
 import { useApp } from "@/context/AppContext";
@@ -22,11 +23,12 @@ export default function MainScreen() {
       <MatrixRain opacity={0.45} />
       <View style={styles.screenLayer}>
         {activeScreen === "terminal" && <TerminalScreen />}
-        {activeScreen === "ai" && <AIScreen />}
-        {activeScreen === "files" && <FilesScreen />}
-        {activeScreen === "tools" && <ToolsScreen />}
-        {activeScreen === "ducky" && <DuckyScreen />}
-        {activeScreen === "bridge" && <BridgeScreen />}
+        {activeScreen === "ai"       && <AIScreen />}
+        {activeScreen === "files"    && <FilesScreen />}
+        {activeScreen === "tools"    && <ToolsScreen />}
+        {activeScreen === "ducky"    && <DuckyScreen />}
+        {activeScreen === "bridge"   && <BridgeScreen />}
+        {activeScreen === "netmap"   && <NetMapScreen />}
       </View>
       <NavBar />
     </View>

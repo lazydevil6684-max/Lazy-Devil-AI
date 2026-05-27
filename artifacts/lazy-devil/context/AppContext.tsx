@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 
-export type Screen = "terminal" | "ai" | "files" | "tools" | "ducky" | "bridge";
+export type Screen = "terminal" | "ai" | "files" | "tools" | "ducky" | "bridge" | "netmap";
 export type ExecMode = "backend" | "termux";
 
 export interface TerminalLine {
