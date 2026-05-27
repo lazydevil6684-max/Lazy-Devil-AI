@@ -1,2 +1,3 @@
 - [APK build setup](apk-build.md) — EAS cloud build configured; native root module via config plugin pattern (no local workspace package needed)
 - [React useState function setter quirk](react-setstate-fn.md) — passing a function to useState setter calls it as updater; wrap in thunk `setState(() => fn)` to store function as state
+- [TerminalLine types](terminal-line-types.md) — TerminalLine.type union must include all display variants used in TerminalScreen; "agent" and "thought" were added for autonomous agent loop output

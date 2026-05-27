@@ -12,7 +12,7 @@ export type ExecMode = "backend" | "termux";
 
 export interface TerminalLine {
   id: string;
-  type: "command" | "output" | "error" | "info" | "success";
+  type: "command" | "output" | "error" | "info" | "success" | "agent" | "thought";
   content: string;
   timestamp: number;
 }

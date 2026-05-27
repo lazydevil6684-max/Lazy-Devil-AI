@@ -13,48 +13,35 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "@/context/AppContext";
-import { useColors } from "@/hooks/useColors";
 
-const HELP_TEXT = `
-LAZY DEVIL TERMINAL v2.1 — REAL EXECUTION
-══════════════════════════════════════════════
-Commands run on real Linux (backend) or Termux (your phone).
-Toggle server in the BRIDGE tab.
+const AGENT_SYSTEM = `You are an autonomous penetration testing agent operating at a real Linux terminal.
+You have access to real command execution. Your job: complete the user's security task by running commands one at a time.
 
-REAL EXECUTION (backend / termux)
-  Any shell command     Runs for real and returns output
-  ping, curl, dig       Network tools with real results
-  python3 -c "..."      Run Python code
-  bash -c "..."         Arbitrary bash
-  whoami, id, uname     Real system info
-  nmap, nc, ss          Security tools (if installed)
+Rules:
+1. ALWAYS respond with EXACTLY this format:
+   THOUGHT: <one line — what you're doing and why>
+   CMD: <single shell command to execute>
+   
+2. When the task is fully complete, respond:
+   THOUGHT: Task complete.
+   CMD: DONE
 
-BUILT-IN (simulated)
-  banner                Show banner
-  help                  This help
-  clear                 Clear terminal
+3. Keep commands simple and non-destructive by default.
+4. Use output from previous commands to inform the next step.
+5. Be aggressive and thorough — enumerate deeply, chain exploits logically.
+6. If a tool isn't found, try an alternative.`;
 
-AI
-  ai <query>            Ask AI assistant
-  agent <task>          AI agent — runs commands autonomously
+interface TLine { id: string; type: string; content: string; timestamp: number; }
 
-HISTORY
-  history               Show command history
-  ↑ ↓ arrows            Navigate command history
-`.trim();
-
-interface TerminalLineProps {
-  line: { type: string; content: string };
-}
-
-function TLine({ line }: TerminalLineProps) {
-  const colors = useColors();
+function TermLine({ line }: { line: TLine }) {
   const color =
-    line.type === "command" ? "#cc0000"
-    : line.type === "error" ? "#ff4444"
-    : line.type === "success" ? "#44ff44"
-    : line.type === "info" ? colors.foreground
-    : "#bb9900";
+    line.type === "command"  ? "#ff3333"
+    : line.type === "error"  ? "#ff5555"
+    : line.type === "success"? "#44ff44"
+    : line.type === "info"   ? "#aaaaaa"
+    : line.type === "agent"  ? "#cc44ff"
+    : line.type === "thought"? "#ffaa00"
+    : "#cc6600";
 
   return (
     <Text
@@ -66,8 +53,29 @@ function TLine({ line }: TerminalLineProps) {
   );
 }
 
+const HELP = `LAZY DEVIL TERMINAL v2.1 — AUTONOMOUS AI AGENT
+══════════════════════════════════════════════════
+COMMANDS
+  <any shell>         Real execution (backend/Termux)
+  agent <goal>        AI runs tests autonomously until done
+  ai <question>       Quick AI question → switch to AI tab
+  clear               Clear terminal
+  banner              Show banner
+  history             Show command history
+  cd <path>           Change directory
+
+AGENT EXAMPLES
+  agent scan 192.168.1.1 for vulnerabilities
+  agent enumerate http://example.com and find all dirs
+  agent crack the hash 5f4dcc3b5aa765d61d8327deb882cf99
+  agent find all live hosts on 192.168.1.0/24
+
+KEYS
+  ↑ ↓       Command history navigation
+  🤖 btn    Run current input as agent task
+  🎙 btn    Voice input (web)`;
+
 export default function TerminalScreen() {
-  const colors = useColors();
   const insets = useSafeAreaInsets();
   const {
     terminalLines, addTerminalLine, clearTerminal,
@@ -77,19 +85,20 @@ export default function TerminalScreen() {
     setExecuteCommandFromAI,
     execMode, backendUrl, execCommand,
     isAiLoading, setIsAiLoading,
-    selectedModel, apiKey,
   } = useApp();
 
   const [input, setInput] = useState("");
   const [histIdx, setHistIdx] = useState(-1);
   const [isListening, setIsListening] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [agentRunning, setAgentRunning] = useState(false);
+  const agentStopRef = useRef(false);
   const flatRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const recognitionRef = useRef<any>(null);
 
   const scrollToBottom = useCallback(() => {
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 50);
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
   }, []);
 
   useEffect(() => { scrollToBottom(); }, [terminalLines.length]);
@@ -117,91 +126,146 @@ export default function TerminalScreen() {
   };
 
   const startVoice = () => {
-    if (Platform.OS !== "web") {
-      addTerminalLine({ type: "info", content: "[~] Voice available on web version" });
-      return;
-    }
+    if (Platform.OS !== "web") { addTerminalLine({ type: "info", content: "[~] Voice on web only" }); return; }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { addTerminalLine({ type: "error", content: "[!] Voice not supported in this browser" }); return; }
-    const rec = new SR();
-    rec.lang = "en-US";
+    if (!SR) { addTerminalLine({ type: "error", content: "[!] Voice not supported" }); return; }
+    const rec = new SR(); rec.lang = "en-US";
     recognitionRef.current = rec;
     setIsListening(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    rec.onresult = (e: any) => { setInput(e.results[0]?.[0]?.transcript ?? ""); setIsListening(false); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); };
+    rec.onresult = (e: any) => { setInput(e.results[0]?.[0]?.transcript ?? ""); setIsListening(false); };
     rec.onerror = () => setIsListening(false);
     rec.onend = () => setIsListening(false);
     rec.start();
   };
 
-  const realExec = useCallback(async (cmd: string) => {
-    addTerminalLine({ type: "info", content: `[exec:${execMode}] ${cmd}` });
+  const realExec = useCallback(async (cmd: string, quiet = false): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+    if (!quiet) addTerminalLine({ type: "info", content: `[${execMode}] ${cmd.length > 80 ? cmd.slice(0,80)+"…" : cmd}` });
     setIsRunning(true);
     const result = await execCommand(cmd);
     setIsRunning(false);
-    if (result.stdout) {
-      for (const line of result.stdout.split("\n")) {
-        if (line) addTerminalLine({ type: result.exitCode === 0 ? "output" : "error", content: line });
+    if (!quiet) {
+      const out = ((result.stdout || "") + (result.stderr || "")).trim();
+      if (out) {
+        out.split("\n").slice(0, 200).forEach(l => {
+          if (l.trim()) addTerminalLine({ type: result.exitCode === 0 ? "output" : "error", content: l });
+        });
+        if (out.split("\n").length > 200) addTerminalLine({ type: "info", content: `[… ${out.split("\n").length - 200} more lines truncated]` });
+      } else if (result.exitCode === 0) {
+        addTerminalLine({ type: "success", content: `[+] Done` });
       }
-    }
-    if (result.stderr) {
-      for (const line of result.stderr.split("\n")) {
-        if (line) addTerminalLine({ type: "error", content: line });
-      }
-    }
-    if (!result.stdout && !result.stderr && result.exitCode === 0) {
-      addTerminalLine({ type: "success", content: `[+] Done (${result.elapsed}ms)` });
     }
     return result;
   }, [execMode, execCommand, addTerminalLine]);
 
-  const aiAgent = useCallback(async (task: string) => {
-    if (isAiLoading) return;
-    addTerminalLine({ type: "info", content: `[🤖 AGENT] Task: ${task}` });
+  // ─── AUTONOMOUS AI AGENT LOOP ─────────────────────────────────────────────
+  const runAgent = useCallback(async (task: string) => {
+    if (agentRunning) return;
+    agentStopRef.current = false;
+    setAgentRunning(true);
     setIsAiLoading(true);
-    try {
-      const domain = backendUrl;
-      const response = await fetch(`${domain}/api/ai/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: `You are an autonomous security agent. The user wants to: "${task}". Generate ONE shell command that makes progress on this task. Reply ONLY with the command, nothing else. No markdown, no explanation. Just the raw command string.` }],
-        }),
-      });
-      const data = await response.json();
-      const cmd = (data?.content ?? "").trim().replace(/^```[\w]*\n?/, "").replace(/```$/, "").trim();
-      if (!cmd || cmd.includes(" ") === false && cmd.length > 80) {
-        addTerminalLine({ type: "error", content: "[!] Agent could not generate a valid command" });
-        return;
-      }
-      addTerminalLine({ type: "success", content: `[🤖] Running: ${cmd}` });
-      const result = await realExec(cmd);
 
-      if (result.stdout || result.stderr) {
-        const output = (result.stdout + result.stderr).slice(0, 800);
-        const interpretResp = await fetch(`${domain}/api/ai/chat`, {
+    addTerminalLine({ type: "agent", content: `╔══════════════════════════════════════════` });
+    addTerminalLine({ type: "agent", content: `║ 🤖 AGENT STARTED` });
+    addTerminalLine({ type: "agent", content: `║ Task: ${task}` });
+    addTerminalLine({ type: "agent", content: `║ Execution: ${execMode.toUpperCase()}` });
+    addTerminalLine({ type: "agent", content: `╚══════════════════════════════════════════` });
+
+    const conversation: { role: "user" | "assistant"; content: string }[] = [
+      { role: "user", content: `Task: ${task}\n\nStart now. Reply with THOUGHT and CMD.` },
+    ];
+
+    let iteration = 0;
+    const MAX_ITER = 20;
+    let sessionContext = `Task: ${task}\n\nExecution log:\n`;
+
+    while (iteration < MAX_ITER && !agentStopRef.current) {
+      iteration++;
+      addTerminalLine({ type: "agent", content: `─── Step ${iteration}/${MAX_ITER} ───────────────────────` });
+
+      // Ask AI for next command
+      try {
+        const resp = await fetch(`${backendUrl}/api/ai/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: [{ role: "user", content: `Task: "${task}"\nCommand run: ${cmd}\nOutput:\n${output}\n\nBriefly interpret this output (2-3 lines) and suggest the single best next command. Format: ANALYSIS: <one line>\nNEXT: <exact command>` }],
+            messages: conversation,
+            systemPrompt: AGENT_SYSTEM,
           }),
         });
-        const interpretData = await interpretResp.json();
-        const interpretation = interpretData?.content ?? "";
-        for (const l of interpretation.split("\n").filter(Boolean)) {
-          addTerminalLine({ type: "info", content: `[🤖] ${l}` });
+        if (!resp.ok) throw new Error(`AI API error: ${resp.status}`);
+        const data = await resp.json();
+        const reply = (data?.content ?? "").trim();
+
+        // Parse THOUGHT and CMD
+        const thoughtMatch = reply.match(/THOUGHT:\s*(.+)/);
+        const cmdMatch = reply.match(/CMD:\s*(.+)/s);
+        const thought = thoughtMatch?.[1]?.trim() ?? reply.slice(0, 120);
+        const cmd = cmdMatch?.[1]?.trim() ?? "";
+
+        if (thought) addTerminalLine({ type: "thought", content: `💭 ${thought}` });
+
+        if (!cmd || cmd === "DONE") {
+          addTerminalLine({ type: "success", content: "✓ Agent task complete." });
+          break;
         }
-        const nextMatch = interpretation.match(/NEXT:\s*(.+)/);
-        if (nextMatch?.[1]) {
-          addTerminalLine({ type: "info", content: `[🤖] Run next: ${nextMatch[1].trim()}` });
+
+        // Execute the command
+        addTerminalLine({ type: "command", content: cmd });
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        const execResult = await realExec(cmd, true);
+
+        const rawOut = ((execResult.stdout || "") + (execResult.stderr || "")).trim();
+        const outLines = rawOut.split("\n").slice(0, 80);
+        outLines.forEach(l => {
+          if (l.trim()) addTerminalLine({ type: execResult.exitCode === 0 ? "output" : "error", content: l });
+        });
+        if (rawOut.split("\n").length > 80) {
+          addTerminalLine({ type: "info", content: `[… ${rawOut.split("\n").length - 80} more lines]` });
         }
+        if (!rawOut) addTerminalLine({ type: "info", content: "[no output]" });
+
+        // Feed result back to AI
+        const summary = rawOut.slice(0, 2000) || "[no output]";
+        sessionContext += `\n$ ${cmd}\n${summary}\n`;
+        conversation.push({ role: "assistant", content: reply });
+        conversation.push({
+          role: "user",
+          content: `Command output (exit code ${execResult.exitCode}):\n\`\`\`\n${summary}\n\`\`\`\n\nContinue. What is the next step? Reply with THOUGHT and CMD, or CMD: DONE if finished.`,
+        });
+
+        // Keep conversation manageable
+        if (conversation.length > 24) {
+          conversation.splice(1, 2); // remove oldest assistant+user pair
+        }
+
+      } catch (err: any) {
+        addTerminalLine({ type: "error", content: `[!] Agent error: ${err?.message ?? "Unknown"}` });
+        await new Promise(r => setTimeout(r, 2000));
       }
-    } catch (e: any) {
-      addTerminalLine({ type: "error", content: `[!] Agent error: ${e?.message}` });
-    } finally {
-      setIsAiLoading(false);
+
+      if (agentStopRef.current) break;
+      // Small pause between steps
+      await new Promise(r => setTimeout(r, 300));
     }
-  }, [isAiLoading, backendUrl, realExec, addTerminalLine, setIsAiLoading]);
+
+    if (iteration >= MAX_ITER) {
+      addTerminalLine({ type: "info", content: `[~] Agent hit ${MAX_ITER}-step limit. Type 'agent <continue>' to resume.` });
+    }
+
+    addTerminalLine({ type: "agent", content: `╔══════════════════════════════════════════` });
+    addTerminalLine({ type: "agent", content: `║ 🤖 AGENT STOPPED — ${iteration} steps` });
+    addTerminalLine({ type: "agent", content: `╚══════════════════════════════════════════` });
+
+    setAgentRunning(false);
+    setIsAiLoading(false);
+  }, [agentRunning, execMode, backendUrl, realExec, addTerminalLine, setIsAiLoading]);
+
+  const stopAgent = () => {
+    agentStopRef.current = true;
+    addTerminalLine({ type: "info", content: "[~] Stopping agent after current command..." });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  };
 
   const runCommand = useCallback(async (cmd: string) => {
     const trimmed = cmd.trim();
@@ -210,66 +274,51 @@ export default function TerminalScreen() {
     addToHistory(trimmed);
     setHistIdx(-1);
     addTerminalLine({ type: "command", content: trimmed });
-
     const parts = trimmed.split(/\s+/);
-    const command = parts[0].toLowerCase();
 
-    switch (command) {
-      case "clear":
-        clearTerminal();
-        break;
+    switch (parts[0].toLowerCase()) {
+      case "clear":  clearTerminal(); break;
 
       case "help":
-        for (const line of HELP_TEXT.split("\n")) addTerminalLine({ type: "output", content: line });
+        HELP.split("\n").forEach(l => addTerminalLine({ type: "output", content: l }));
         break;
 
       case "banner":
-        for (const l of [
-          ` _                        ____             _ _ `,
-          `| |    __ _ _____   _   |  _ \\  _____   _(_) |`,
-          `| |   / _\` |_  / | | |  | | | |/ _ \\ \\ / / | |`,
-          `| |__| (_| |/ /| |_| |  | |_| |  __/\\ V /| | |`,
-          `|_____\\__,_/___|\\__, |  |____/ \\___| \\_/ |_|_|`,
-          `                |___/  v2.1 · Real Exec · AI Agent`,
-        ]) addTerminalLine({ type: "info", content: l });
+        [" _                        ____             _ _ ",
+         "| |    __ _ _____   _   |  _ \\  _____   _(_) |",
+         "| |   / _` |_  / | | |  | | | |/ _ \\ \\ / / | |",
+         "| |__| (_| |/ /| |_| |  | |_| |  __/\\ V /| | |",
+         "|_____\\__,_/___|\\__, |  |____/ \\___| \\_/ |_|_|",
+         "                |___/  v2.1 · Real Exec · AI Agent"].forEach(l => addTerminalLine({ type: "info", content: l }));
         break;
 
       case "history":
-        if (!commandHistory.length) {
-          addTerminalLine({ type: "output", content: "(no history)" });
-        } else {
-          commandHistory.slice().reverse().forEach((h, i) => {
-            addTerminalLine({ type: "output", content: `  ${String(commandHistory.length - i).padStart(4)}  ${h}` });
-          });
-        }
+        commandHistory.slice().reverse().slice(0, 50).forEach((h, i) => {
+          addTerminalLine({ type: "output", content: `  ${String(commandHistory.length - i).padStart(4)}  ${h}` });
+        });
+        if (!commandHistory.length) addTerminalLine({ type: "output", content: "(empty)" });
         break;
 
       case "ai": {
-        const query = parts.slice(1).join(" ");
-        if (!query) { addTerminalLine({ type: "error", content: "Usage: ai <question>" }); break; }
+        const q = parts.slice(1).join(" ");
+        if (!q) { addTerminalLine({ type: "error", content: "Usage: ai <question>" }); break; }
         setActiveScreen("ai");
-        addAiMessage({ role: "user", content: query });
+        addAiMessage({ role: "user", content: q });
         break;
       }
 
       case "agent": {
         const task = parts.slice(1).join(" ");
-        if (!task) { addTerminalLine({ type: "error", content: "Usage: agent <task description>" }); break; }
-        await aiAgent(task);
+        if (!task) { addTerminalLine({ type: "error", content: 'Usage: agent <task> — e.g. "agent scan 10.0.0.1 for vulns"' }); break; }
+        await runAgent(task);
         break;
       }
 
       case "cd":
-        if (!parts[1] || parts[1] === "~") {
-          setCurrentPath("/root");
-        } else if (parts[1] === "..") {
-          const p = currentPath.split("/").filter(Boolean);
-          p.pop();
-          setCurrentPath("/" + p.join("/") || "/");
-        } else {
-          setCurrentPath(parts[1].startsWith("/") ? parts[1] : `${currentPath}/${parts[1]}`);
-        }
-        addTerminalLine({ type: "success", content: `[+] ${parts[1] ?? "/root"}` });
+        if (!parts[1] || parts[1] === "~") setCurrentPath("/root");
+        else if (parts[1] === "..") { const p = currentPath.split("/").filter(Boolean); p.pop(); setCurrentPath("/" + p.join("/") || "/"); }
+        else setCurrentPath(parts[1].startsWith("/") ? parts[1] : `${currentPath}/${parts[1]}`);
+        addTerminalLine({ type: "success", content: `[+] ${currentPath}` });
         break;
 
       default:
@@ -277,23 +326,22 @@ export default function TerminalScreen() {
         break;
     }
   }, [addTerminalLine, clearTerminal, currentPath, setCurrentPath, setActiveScreen,
-      addAiMessage, addToHistory, commandHistory, aiAgent, realExec, isAiLoading, setIsAiLoading]);
+      addAiMessage, addToHistory, commandHistory, realExec, runAgent]);
+
+  const isBusy = isRunning || agentRunning || isAiLoading;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.headerText, { color: "#cc0000" }]}>root@lazy-devil:{currentPath}</Text>
-        <View style={styles.headerRight}>
-          <View style={[styles.modeBadge, { backgroundColor: execMode === "termux" ? "#001a00" : "#0a0000", borderColor: execMode === "termux" ? "#44ff44" : "#cc0000" }]}>
+        <Text style={styles.headerPath} numberOfLines={1}>root@lazy-devil:{currentPath}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={[styles.modeBadge, { borderColor: execMode === "termux" ? "#44ff44" : "#cc0000" }]}>
             <Text style={[styles.modeText, { color: execMode === "termux" ? "#44ff44" : "#cc0000" }]}>
               {execMode === "termux" ? "TERMUX" : "BACKEND"}
             </Text>
           </View>
-          {(isRunning || isAiLoading) && (
-            <View style={styles.runIndicator}>
-              <Text style={styles.runIndicatorText}>●</Text>
-            </View>
-          )}
+          {isBusy && <View style={styles.busyDot} />}
         </View>
       </View>
 
@@ -301,64 +349,71 @@ export default function TerminalScreen() {
         ref={flatRef}
         data={terminalLines}
         keyExtractor={item => item.id}
-        renderItem={({ item }) => <TLine line={item} />}
+        renderItem={({ item }) => <TermLine line={item} />}
         style={styles.output}
-        contentContainerStyle={{ paddingVertical: 4 }}
+        contentContainerStyle={{ paddingVertical: 6 }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={scrollToBottom}
       />
 
-      <View style={styles.navRow}>
-        <TouchableOpacity style={styles.navBtn} onPress={() => navigateHistory("up")}>
-          <Text style={styles.navBtnText}>▲</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navBtn} onPress={() => navigateHistory("down")}>
-          <Text style={styles.navBtnText}>▼</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.agentBtn}
-          onPress={() => {
-            if (input.trim()) { runCommand(`agent ${input}`); setInput(""); }
-            else addTerminalLine({ type: "info", content: "[~] Type a task then tap 🤖 — e.g. 'scan local network'" });
-          }}
-        >
-          <Text style={styles.agentBtnText}>🤖 AGENT</Text>
-        </TouchableOpacity>
+      {/* Control row */}
+      <View style={styles.ctrlRow}>
+        <TouchableOpacity style={styles.ctrlBtn} onPress={() => navigateHistory("up")}><Text style={styles.ctrlTxt}>▲</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.ctrlBtn} onPress={() => navigateHistory("down")}><Text style={styles.ctrlTxt}>▼</Text></TouchableOpacity>
+
+        {agentRunning ? (
+          <TouchableOpacity style={styles.stopBtn} onPress={stopAgent}>
+            <Text style={styles.stopTxt}>◼ STOP AGENT</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.agentBtn}
+            onPress={() => {
+              if (input.trim()) { runCommand(`agent ${input.trim()}`); setInput(""); }
+              else addTerminalLine({ type: "info", content: '[~] Type a goal then tap 🤖 — e.g. "scan 10.0.0.1 for vulns"' });
+            }}
+          >
+            <Text style={styles.agentTxt}>🤖 AGENT</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={[styles.micBtn, isListening && styles.micActive]}
           onPress={isListening ? () => { recognitionRef.current?.stop(); setIsListening(false); } : startVoice}
         >
-          <Text style={styles.micText}>{isListening ? "◼ STOP" : "🎙"}</Text>
+          <Text style={styles.micTxt}>{isListening ? "◼" : "🎙"}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navBtn} onPress={clearHistory}>
-          <Text style={[styles.navBtnText, { color: "#440000" }]}>HST</Text>
+
+        <TouchableOpacity style={styles.ctrlBtn} onPress={clearHistory}>
+          <Text style={[styles.ctrlTxt, { color: "#330000" }]}>HST</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.inputRow, { borderTopColor: "#330000", paddingBottom: insets.bottom + 90 }]}>
-        <Text style={[styles.prompt, { color: "#cc0000" }]}># </Text>
+      {/* Input row */}
+      <View style={[styles.inputRow, { paddingBottom: insets.bottom + 90 }]}>
+        <Text style={styles.prompt}>#</Text>
         <TextInput
           ref={inputRef}
-          style={[styles.input, { color: "#ff3333" }]}
+          style={styles.input}
           value={input}
           onChangeText={setInput}
-          onSubmitEditing={() => { runCommand(input); setInput(""); }}
+          onSubmitEditing={() => { if (!isBusy) { runCommand(input); setInput(""); } }}
           returnKeyType="send"
           autoCapitalize="none"
           autoCorrect={false}
           spellCheck={false}
-          placeholderTextColor="#440000"
-          placeholder="enter command or task..."
+          placeholder={agentRunning ? "agent running…" : "command or agent goal…"}
+          placeholderTextColor="#330000"
           blurOnSubmit={false}
-          editable={!isRunning && !isAiLoading}
+          editable={!agentRunning}
         />
         <TouchableOpacity
-          onPress={() => { runCommand(input); setInput(""); }}
-          style={[styles.runBtn, { borderColor: isRunning ? "#440000" : "#cc0000", opacity: isRunning ? 0.5 : 1 }]}
-          disabled={isRunning || isAiLoading}
+          style={[styles.runBtn, isBusy && { borderColor: "#220000" }]}
+          onPress={() => { if (!isBusy) { runCommand(input); setInput(""); } }}
+          disabled={isBusy}
         >
-          <Text style={[styles.runBtnText, { color: isRunning ? "#440000" : "#cc0000" }]}>
-            {isRunning ? "..." : "RUN"}
+          <Text style={[styles.runTxt, { color: isBusy ? "#220000" : "#cc0000" }]}>
+            {agentRunning ? "..." : isRunning ? "…" : "RUN"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -368,29 +423,25 @@ export default function TerminalScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 8, paddingVertical: 5,
-    borderBottomWidth: 1, borderBottomColor: "#330000",
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-  },
-  headerText: { fontFamily: "monospace", fontSize: 11, flex: 1 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 6 },
-  modeBadge: { borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 8, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: "#1a0000" },
+  headerPath: { fontFamily: "monospace", fontSize: 10, color: "#cc0000", flex: 1 },
+  modeBadge: { borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2 },
   modeText: { fontFamily: "monospace", fontSize: 8, fontWeight: "bold" },
-  runIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#cc0000" },
-  runIndicatorText: { color: "#cc0000", fontSize: 10 },
+  busyDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#cc0000" },
   output: { flex: 1 },
-  navRow: { flexDirection: "row", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: "#1a0000", alignItems: "center" },
-  navBtn: { borderWidth: 1, borderColor: "#330000", paddingHorizontal: 10, paddingVertical: 4 },
-  navBtnText: { color: "#880000", fontFamily: "monospace", fontSize: 11 },
-  agentBtn: { borderWidth: 1, borderColor: "#550055", paddingHorizontal: 8, paddingVertical: 4, backgroundColor: "#0a0010" },
-  agentBtnText: { color: "#cc44cc", fontFamily: "monospace", fontSize: 10, fontWeight: "bold" },
-  micBtn: { borderWidth: 1, borderColor: "#330000", paddingHorizontal: 8, paddingVertical: 4, marginLeft: "auto" },
-  micActive: { backgroundColor: "#220000", borderColor: "#cc0000" },
-  micText: { color: "#cc0000", fontFamily: "monospace", fontSize: 10 },
-  inputRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingTop: 6, borderTopWidth: 1 },
-  prompt: { fontFamily: "monospace", fontSize: 14, fontWeight: "bold" },
-  input: { flex: 1, fontFamily: "monospace", fontSize: 13, paddingVertical: 6 },
-  runBtn: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5, marginLeft: 6 },
-  runBtnText: { fontFamily: "monospace", fontSize: 11, fontWeight: "bold" },
+  ctrlRow: { flexDirection: "row", gap: 4, paddingHorizontal: 6, paddingVertical: 4, borderTopWidth: 1, borderTopColor: "#110000", alignItems: "center" },
+  ctrlBtn: { borderWidth: 1, borderColor: "#220000", paddingHorizontal: 9, paddingVertical: 5 },
+  ctrlTxt: { color: "#660000", fontFamily: "monospace", fontSize: 11 },
+  agentBtn: { borderWidth: 1, borderColor: "#550055", paddingHorizontal: 9, paddingVertical: 5, backgroundColor: "#080010" },
+  agentTxt: { color: "#cc44cc", fontFamily: "monospace", fontSize: 10, fontWeight: "bold" },
+  stopBtn: { borderWidth: 1, borderColor: "#cc0000", paddingHorizontal: 9, paddingVertical: 5, backgroundColor: "#1a0000" },
+  stopTxt: { color: "#ff4444", fontFamily: "monospace", fontSize: 10, fontWeight: "bold" },
+  micBtn: { borderWidth: 1, borderColor: "#220000", paddingHorizontal: 8, paddingVertical: 5, marginLeft: "auto" },
+  micActive: { backgroundColor: "#200000", borderColor: "#cc0000" },
+  micTxt: { color: "#cc0000", fontFamily: "monospace", fontSize: 10 },
+  inputRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: "#110000", gap: 6 },
+  prompt: { fontFamily: "monospace", fontSize: 16, color: "#cc0000", fontWeight: "bold" },
+  input: { flex: 1, fontFamily: "monospace", fontSize: 13, color: "#ff3333", paddingVertical: 6 },
+  runBtn: { borderWidth: 1, borderColor: "#cc0000", paddingHorizontal: 10, paddingVertical: 6 },
+  runTxt: { fontFamily: "monospace", fontSize: 11, fontWeight: "bold" },
 });
